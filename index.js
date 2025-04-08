@@ -1,26 +1,42 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const cron = require('node-cron');
+const { Boom } = require('@hapi/boom');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const { useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox']
-  }
-});
+async function iniciarBot() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth');
+  const { version } = await fetchLatestBaileysVersion();
 
-client.on('qr', (qr) => {
-  qrcode.generate(qr, { small: true });
-});
+  const sock = makeWASocket({
+    version,
+    printQRInTerminal: false,
+    auth: state,
+    browser: ['Ubuntu', 'Chrome', '22.04'],
+  });
 
-client.on('ready', () => {
-  console.log('✅ Bot conectado a WhatsApp');
-});
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, qr } = update;
+    
+    if (qr) {
+      const qrImage = await require('qrcode').toDataURL(qr);
+      console.log('\n📸 Escanea este código QR desde tu navegador:');
+      console.log(qrImage); // te dará una imagen base64 (data:image/png...)
+    }
 
-// Prueba de tarea automática cada 2 minutos
-cron.schedule('*/2 * * * *', () => {
-  console.log('⏰ Ejecutando tarea cada 2 minutos...');
-});
+    if (connection === 'open') {
+      console.log('✅ Bot conectado a WhatsApp');
+    }
 
-client.initialize();
+    if (connection === 'close') {
+      const shouldReconnect = (update.lastDisconnect.error = Boom)?.output?.statusCode !== 401;
+      console.log('❌ Conexión cerrada, reconectando...', shouldReconnect);
+      if (shouldReconnect) {
+        iniciarBot();
+      }
+    }
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+}
+
+iniciarBot();
