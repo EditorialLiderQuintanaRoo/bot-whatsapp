@@ -1,26 +1,25 @@
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 
 async function iniciarBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth');
+  const { state, saveCreds } = await useMultiFileAuthState('./auth');
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
+    auth: state,
     version,
     printQRInTerminal: false,
-    auth: state,
     browser: ['Ubuntu', 'Chrome', '22.04'],
   });
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, qr } = update;
-    
+    const { connection, qr, lastDisconnect } = update;
+
     if (qr) {
-      const qrImage = await require('qrcode').toDataURL(qr);
-      console.log('\n📸 Escanea este código QR desde tu navegador:');
-      console.log(qrImage); // te dará una imagen base64 (data:image/png...)
+      const qrDataURL = await qrcode.toDataURL(qr);
+      console.log('\n📷 Escanea el código QR en tu navegador:');
+      console.log(qrDataURL); // copia y pega este enlace en tu navegador
     }
 
     if (connection === 'open') {
@@ -28,7 +27,7 @@ async function iniciarBot() {
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (update.lastDisconnect.error = Boom)?.output?.statusCode !== 401;
+      const shouldReconnect = new Boom(lastDisconnect?.error)?.output?.statusCode !== 401;
       console.log('❌ Conexión cerrada, reconectando...', shouldReconnect);
       if (shouldReconnect) {
         iniciarBot();
